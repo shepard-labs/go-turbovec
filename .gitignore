@@ -11,3 +11,4 @@ bin/
 .idea/
 .vscode/
 *.swp
+/.codegraph
