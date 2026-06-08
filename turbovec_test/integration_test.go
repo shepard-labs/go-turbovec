@@ -10,10 +10,10 @@ import (
 const (
 	corpusN         = 500
 	queryN          = 200
-	testDim         = 64
+	testDim         = 128
 	testK           = 10
 	testBitW        = 4
-	recallThreshold = 0.88
+	recallThreshold = 0.89
 )
 
 func TestTurboQuantIndex_RecallAt10(t *testing.T) {
