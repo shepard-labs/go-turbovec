@@ -2,6 +2,7 @@ package turbovec
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -131,5 +132,128 @@ func TestIdMapIndex_Remove(t *testing.T) {
 	}
 	if got := idx.Len(); got != 1 {
 		t.Errorf("Len()=%d, want 1", got)
+	}
+}
+
+func TestIdMapIndex_Search_Basic(t *testing.T) {
+	idx, _ := NewIdMapIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+		0, 0, 1, 0, 0, 0, 0, 0,
+		0, 0, 0, 1, 0, 0, 0, 0,
+	}
+	ids := []uint64{10, 20, 30, 40}
+	idx.AddWithIDs(vecs, ids)
+	idx.Prepare()
+	r, err := idx.Search([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 2)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if r.Nq != 1 || r.K != 2 {
+		t.Fatalf("Nq=%d K=%d, want 1 2", r.Nq, r.K)
+	}
+	if r.IDs[0] != 10 {
+		t.Errorf("IDs[0] = %d, want 10", r.IDs[0])
+	}
+}
+
+func TestIdMapIndex_SearchWithAllowlist(t *testing.T) {
+	idx, _ := NewIdMapIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+		0, 0, 1, 0, 0, 0, 0, 0,
+		0, 0, 0, 1, 0, 0, 0, 0,
+	}
+	ids := []uint64{10, 20, 30, 40}
+	idx.AddWithIDs(vecs, ids)
+	idx.Prepare()
+	r, err := idx.SearchWithAllowlist(
+		[]float32{1, 0, 0, 0, 0, 0, 0, 0}, 2,
+		[]uint64{30, 40},
+	)
+	if err != nil {
+		t.Fatalf("SearchWithAllowlist: %v", err)
+	}
+	if r.K != 2 {
+		t.Errorf("K = %d, want 2", r.K)
+	}
+	found30 := false
+	found40 := false
+	for _, id := range r.IDs {
+		if id == 30 {
+			found30 = true
+		}
+		if id == 40 {
+			found40 = true
+		}
+	}
+	if !found30 || !found40 {
+		t.Errorf("IDs = %v, want 30 and 40", r.IDs)
+	}
+}
+
+func TestIdMapIndex_SearchWithAllowlist_EmptyAllowlist(t *testing.T) {
+	idx, _ := NewIdMapIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+	}
+	idx.AddWithIDs(vecs, []uint64{1, 2})
+	idx.Prepare()
+	_, err := idx.SearchWithAllowlist(
+		[]float32{1, 0, 0, 0, 0, 0, 0, 0}, 2,
+		[]uint64{},
+	)
+	if !errors.Is(err, ErrEmptyAllowlist) {
+		t.Errorf("err = %v, want errors.Is(ErrEmptyAllowlist)", err)
+	}
+}
+
+func TestIdMapIndex_SearchWithAllowlist_UnknownID(t *testing.T) {
+	idx, _ := NewIdMapIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+	}
+	idx.AddWithIDs(vecs, []uint64{1, 2})
+	idx.Prepare()
+	_, err := idx.SearchWithAllowlist(
+		[]float32{1, 0, 0, 0, 0, 0, 0, 0}, 2,
+		[]uint64{1, 9999},
+	)
+	if !errors.Is(err, ErrUnknownID) {
+		t.Errorf("err = %v, want errors.Is(ErrUnknownID)", err)
+	}
+}
+
+func TestIdMapIndex_WriteLoad(t *testing.T) {
+	idx, _ := NewIdMapIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+	}
+	idx.AddWithIDs(vecs, []uint64{1, 2})
+	idx.Prepare()
+	path := filepath.Join(tmpDir(t), "idx.tvim")
+	if err := idx.Write(path); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	loaded, err := LoadIdMapIndex(path)
+	if err != nil {
+		t.Fatalf("LoadIdMapIndex: %v", err)
+	}
+	defer loaded.Close()
+	if got := loaded.Len(); got != 2 {
+		t.Errorf("loaded Len() = %d, want 2", got)
+	}
+	if !loaded.Contains(1) || !loaded.Contains(2) {
+		t.Error("loaded missing ids")
 	}
 }

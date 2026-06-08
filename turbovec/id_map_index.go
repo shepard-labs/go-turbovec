@@ -148,3 +148,111 @@ func (i *IdMapIndex) Contains(id uint64) bool {
 	}
 	return bool(C.id_contains(i.h, C.uint64_t(id)))
 }
+
+// Prepare eagerly materialises the lazy caches.
+func (i *IdMapIndex) Prepare() {
+	C.id_prepare(i.h)
+}
+
+// Search returns the top-k nearest external ids for each query. The
+// returned IdResults has K=k for queries on an index with at least k
+// vectors.
+func (i *IdMapIndex) Search(queries []float32, k int) (IdResults, error) {
+	return i.SearchWithAllowlist(queries, k, nil)
+}
+
+// SearchWithAllowlist restricts the search to the given external ids.
+// Returns ErrEmptyAllowlist for an empty allowlist, ErrUnknownID if any
+// allowlist id is not present.
+func (i *IdMapIndex) SearchWithAllowlist(queries []float32, k int, allowlist []uint64) (IdResults, error) {
+	if i.h == nil {
+		return IdResults{}, &Error{Op: "Search", Msg: "index is closed"}
+	}
+	dim, _ := i.Dim()
+	if dim == 0 {
+		return IdResults{}, &Error{Op: "Search", Err: ErrInvalidDim, Msg: "index dim is uncommitted"}
+	}
+	if len(queries)%dim != 0 {
+		return IdResults{}, &Error{Op: "Search", Err: ErrInvalidDim}
+	}
+	nq := len(queries) / dim
+	// Distinguish "no allowlist" (nil pointer) from "empty allowlist"
+	// (non-nil pointer with length 0) so the FFI can map the latter
+	// to ErrEmptyAllowlist.
+	var allowptr *C.uint64_t
+	var allowlen C.size_t
+	var emptySentinel *C.char
+	if allowlist != nil {
+		if len(allowlist) == 0 {
+			emptySentinel = (*C.char)(C.calloc(1, 1))
+			defer C.free(unsafe.Pointer(emptySentinel))
+			allowptr = (*C.uint64_t)(unsafe.Pointer(emptySentinel))
+			allowlen = C.size_t(0)
+		} else {
+			allowptr = (*C.uint64_t)(unsafe.Pointer(&allowlist[0]))
+			allowlen = C.size_t(len(allowlist))
+		}
+	}
+	var qptr *C.float
+	if len(queries) > 0 {
+		qptr = (*C.float)(unsafe.Pointer(&queries[0]))
+	}
+	var cerr *C.char
+	cr := C.id_search(
+		i.h,
+		qptr,
+		C.size_t(nq),
+		C.size_t(dim),
+		C.size_t(k),
+		allowptr,
+		allowlen,
+		&cerr,
+	)
+	defer C.id_results_free(cr)
+	if err := takeErr(cerr); err != nil {
+		return IdResults{}, &Error{Op: "Search", Err: err, Msg: err.Error()}
+	}
+	return copyIdResults(cr)
+}
+
+func copyIdResults(cr C.IdSearchResults) (IdResults, error) {
+	n := int(cr.nq) * int(cr.k)
+	if n == 0 {
+		return IdResults{Nq: int(cr.nq), K: int(cr.k)}, nil
+	}
+	scores := unsafe.Slice((*float32)(unsafe.Pointer(cr.scores)), n)
+	ids := unsafe.Slice((*uint64)(unsafe.Pointer(cr.ids)), n)
+	sCopy := make([]float32, n)
+	copy(sCopy, scores)
+	iCopy := make([]uint64, n)
+	copy(iCopy, ids)
+	return IdResults{Scores: sCopy, IDs: iCopy, Nq: int(cr.nq), K: int(cr.k)}, nil
+}
+
+// Write serializes the index to a .tvim file.
+func (i *IdMapIndex) Write(path string) error {
+	if i.h == nil {
+		return &Error{Op: "Write", Msg: "index is closed"}
+	}
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	if rc := C.id_write(i.h, cpath); rc != 0 {
+		return &Error{Op: "Write", Err: ErrIO, Msg: path}
+	}
+	return nil
+}
+
+// LoadIdMapIndex loads an index previously written by Write.
+func LoadIdMapIndex(path string) (*IdMapIndex, error) {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	var cerr *C.char
+	h := C.id_load(cpath, &cerr)
+	if err := takeErr(cerr); err != nil {
+		return nil, &Error{Op: "LoadIdMapIndex", Err: err, Msg: path}
+	}
+	if h == nil {
+		return nil, &Error{Op: "LoadIdMapIndex", Msg: "id_load returned null without error"}
+	}
+	return newIdMapIndex(h), nil
+}

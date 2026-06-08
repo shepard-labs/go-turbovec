@@ -49,6 +49,15 @@ pub struct TqSearchResults {
     pub k: usize,
 }
 
+/// Search result struct. Mirrors cabi.h's IdSearchResults.
+#[repr(C)]
+pub struct IdSearchResults {
+    pub scores: *mut f32,
+    pub ids: *mut u64,
+    pub nq: usize,
+    pub k: usize,
+}
+
 /// Opaque handle to a heap-allocated `IdMapIndex`.
 #[repr(C)]
 pub struct IdHandle {
@@ -423,4 +432,152 @@ pub extern "C" fn id_remove(h: *mut IdHandle, id: u64) -> bool {
 #[no_mangle]
 pub extern "C" fn id_contains(h: *const IdHandle, id: u64) -> bool {
     unsafe { (*h).inner.contains(id) }
+}
+
+#[no_mangle]
+pub extern "C" fn id_prepare(h: *const IdHandle) {
+    unsafe { (*h).inner.prepare() }
+}
+
+#[no_mangle]
+pub extern "C" fn id_write(h: *const IdHandle, path: *const c_char) -> i32 {
+    let path_str = unsafe { std::ffi::CStr::from_ptr(path) };
+    let path_os: &std::path::Path = match path_str.to_str() {
+        Ok(s) => std::path::Path::new(s),
+        Err(_) => return -1,
+    };
+    match unsafe { (*h).inner.write(path_os) } {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn id_load(path: *const c_char, err: *mut *mut c_char) -> *mut IdHandle {
+    let path_str = unsafe { std::ffi::CStr::from_ptr(path) };
+    let path_os: &std::path::Path = match path_str.to_str() {
+        Ok(s) => std::path::Path::new(s),
+        Err(_) => {
+            if !err.is_null() {
+                unsafe { *err = prefixed_err(error::PREFIX_IO, "path is not valid UTF-8") }
+            }
+            return std::ptr::null_mut();
+        }
+    };
+    match CoreIdMap::load(path_os) {
+        Ok(core) => {
+            if !err.is_null() {
+                unsafe { *err = std::ptr::null_mut() }
+            }
+            Box::into_raw(Box::new(IdHandle {
+                inner: Box::new(core),
+            }))
+        }
+        Err(e) => {
+            if !err.is_null() {
+                unsafe { *err = prefixed_err(error::PREFIX_IO, e) }
+            }
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn id_search(
+    h: *const IdHandle,
+    queries: *const f32,
+    nq: usize,
+    dim: usize,
+    k: usize,
+    allowlist: *const u64,
+    allowlist_len: usize,
+    err: *mut *mut c_char,
+) -> IdSearchResults {
+    let handle = unsafe { &*h };
+    let q_slice = unsafe { std::slice::from_raw_parts(queries, nq * dim) };
+    let allow_opt: Option<&[u64]> = if allowlist.is_null() {
+        None
+    } else {
+        Some(unsafe { std::slice::from_raw_parts(allowlist, allowlist_len) })
+    };
+
+    // The upstream panics on empty allowlist and on unknown ids in the
+    // allowlist. Catch the panic and translate to a typed FFI error.
+    let res: Result<(Vec<f32>, Vec<u64>), String> = if let Some(allow) = allow_opt {
+        if allow.is_empty() {
+            Err("empty_allowlist: allowlist must not be empty".to_string())
+        } else {
+            // Validate that every id is present before calling the
+            // upstream. This avoids a panic for unknown ids and gives
+            // us a typed error.
+            let unknown: Vec<u64> = allow
+                .iter()
+                .copied()
+                .filter(|id| !handle.inner.contains(*id))
+                .collect();
+            if !unknown.is_empty() {
+                Err(format!(
+                    "unknown_id: allowlist contains id(s) not present in index: {:?}",
+                    unknown
+                ))
+            } else {
+                std::panic::catch_unwind(
+                    std::panic::AssertUnwindSafe(|| {
+                        handle.inner.search_with_allowlist(q_slice, k, Some(allow))
+                    }),
+                )
+                .map_err(|_| "search_with_allowlist panicked".to_string())
+            }
+        }
+    } else {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handle.inner.search_with_allowlist(q_slice, k, None)
+        }))
+        .map_err(|_| "search_with_allowlist panicked".to_string())
+    };
+
+    match res {
+        Err(msg) => {
+            if !err.is_null() {
+                unsafe { *err = CString::new(msg).unwrap().into_raw() };
+            }
+            IdSearchResults {
+                scores: std::ptr::null_mut(),
+                ids: std::ptr::null_mut(),
+                nq,
+                k: 0,
+            }
+        }
+        Ok((scores, ids)) => {
+            let n = scores.len();
+            let mut scores_box = scores.into_boxed_slice();
+            let mut ids_box = ids.into_boxed_slice();
+            let sp = scores_box.as_mut_ptr();
+            let ip = ids_box.as_mut_ptr();
+            std::mem::forget(scores_box);
+            std::mem::forget(ids_box);
+            let kk = if nq == 0 { 0 } else { n / nq };
+            IdSearchResults {
+                scores: sp,
+                ids: ip,
+                nq,
+                k: kk,
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn id_results_free(r: IdSearchResults) {
+    let n = r.nq * r.k;
+    if !r.scores.is_null() {
+        unsafe {
+            let _ = Box::from_raw(std::slice::from_raw_parts_mut(r.scores, n));
+        }
+    }
+    if !r.ids.is_null() {
+        unsafe {
+            let _ = Box::from_raw(std::slice::from_raw_parts_mut(r.ids, n));
+        }
+    }
 }

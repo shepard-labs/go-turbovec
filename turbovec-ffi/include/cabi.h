@@ -52,7 +52,8 @@ bool       id_remove(IdHandle *h, uint64_t id);
 bool       id_contains(const IdHandle *h, uint64_t id);
 IdSearchResults id_search(const IdHandle *h, const float *queries, size_t nq,
                           size_t dim, size_t k,
-                          const uint64_t *allowlist, size_t allowlist_len);
+                          const uint64_t *allowlist, size_t allowlist_len,
+                          char **err);
 void       id_prepare(const IdHandle *h);
 int32_t    id_write(const IdHandle *h, const char *path);
 IdHandle  *id_load(const char *path, char **err);
