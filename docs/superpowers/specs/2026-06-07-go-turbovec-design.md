@@ -180,6 +180,7 @@ func NewLazyTurboQuantIndex(bitWidth int) (*TurboQuantIndex, error)
 
 // Mutators
 func (i *TurboQuantIndex) Add(vectors []float32) error
+func (i *TurboQuantIndex) AddWithDim(vectors []float32, dim int) error
 func (i *TurboQuantIndex) SwapRemove(idx int) (int, error)
 
 // Search
@@ -209,6 +210,7 @@ func NewIdMapIndex(dim int, bitWidth int) (*IdMapIndex, error)
 func NewLazyIdMapIndex(bitWidth int) (*IdMapIndex, error)
 
 func (i *IdMapIndex) AddWithIDs(vectors []float32, ids []uint64) error
+func (i *IdMapIndex) AddWithIDsWithDim(vectors []float32, ids []uint64, dim int) error
 func (i *IdMapIndex) Remove(id uint64) bool
 func (i *IdMapIndex) Contains(id uint64) bool
 
@@ -275,6 +277,8 @@ func (e *Error) Unwrap() error  // returns Err
 
 `Add` and `Search` take a single flat `[]float32`. The Go package treats it as row-major, `len = rows * dim`. The cgo bridge checks the length is a multiple of the index's dim (or, for a lazy index, of the dim committed on this call), and panics-or-returns-`ErrInvalidDim` otherwise. We return an error rather than panic, matching the Python `ValueError` discipline.
 
+`Add` is total only on an eager index: it requires `len(vectors) % dim == 0` with `dim` taken from the index. `AddWithDim` is the explicit form for lazy indices — it commits the dim on the first call and enforces `len(vectors) % dim == 0` for the given `dim` thereafter. The split keeps both signatures total, since the upstream's `Add(vectors)` API is ambiguous on a lazy index (the dim is not committed until the first add). `IdMapIndex` mirrors this with `AddWithIDs` (eager) and `AddWithIDsWithDim` (lazy / explicit dim).
+
 ## Build, test, CI
 
 ### Local build
@@ -309,9 +313,12 @@ The cgo directives on the import line:
 
 ```go
 // #cgo CFLAGS: -I${SRCDIR}/../turbovec-ffi/include
-// #cgo LDFLAGS: -L${SRCDIR}/../turbovec-ffi/target/release -lturbovec_ffi -lpthread -ldl -lm
+// #cgo linux  LDFLAGS: -L${SRCDIR}/../turbovec-ffi/target/release -lturbovec_ffi -lopenblas -lpthread -ldl -lm
+// #cgo darwin LDFLAGS: -L${SRCDIR}/../turbovec-ffi/target/release -lturbovec_ffi -framework Accelerate
 import "C"
 ```
+
+The shim depends on the upstream `turbovec` core's BLAS-backed matmul, so the cgo link step must resolve a BLAS provider. Linux uses OpenBLAS (install `libopenblas-dev`); macOS uses Apple's Accelerate framework. The first `Add` / `Search` is what actually pulls in the BLAS symbols, so LDFLAGS are required even if the test only exercises constructors.
 
 ### Unit tests (`turbovec/*_test.go`)
 
