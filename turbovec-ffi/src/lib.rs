@@ -112,3 +112,54 @@ pub extern "C" fn tq_dim(h: *const TqHandle) -> usize {
 pub extern "C" fn tq_bit_width(h: *const TqHandle) -> u32 {
     unsafe { (*h).inner.bit_width() as u32 }
 }
+
+#[no_mangle]
+pub extern "C" fn tq_add(
+    h: *mut TqHandle,
+    vectors: *const f32,
+    n: usize,
+    dim: usize,
+    err: *mut *mut c_char,
+) {
+    if h.is_null() || vectors.is_null() {
+        if !err.is_null() {
+            unsafe {
+                *err = prefixed_err(error::PREFIX_INVALID_DIM, "null handle or buffer")
+            }
+        }
+        return;
+    }
+    if n == 0 {
+        // Nothing to add; match the upstream's empty-add behavior.
+        if !err.is_null() {
+            unsafe { *err = std::ptr::null_mut() }
+        }
+        return;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(vectors, n * dim) };
+    let res = unsafe { (*h).inner.add_2d(slice, dim) };
+    if !err.is_null() {
+        match res {
+            Ok(()) => unsafe { *err = std::ptr::null_mut() },
+            Err(e) => {
+                let prefix = match &e {
+                    turbovec::AddError::DimMismatch { .. } => error::PREFIX_INVALID_DIM,
+                    turbovec::AddError::DimNotMultipleOf8(_) => {
+                        error::PREFIX_DIM_NOT_MULTIPLE_OF_8
+                    }
+                    turbovec::AddError::VectorBufferNotMultipleOfDim { .. } => {
+                        error::PREFIX_BUFFER_NOT_MULTIPLE_OF_DIM
+                    }
+                    turbovec::AddError::IdsCountMismatch { .. } => {
+                        error::PREFIX_IDS_COUNT_MISMATCH
+                    }
+                    turbovec::AddError::IdAlreadyPresent(_) => error::PREFIX_DUPLICATE_ID,
+                    turbovec::AddError::InvalidInputValue { .. } => {
+                        error::PREFIX_INVALID_INPUT_VALUE
+                    }
+                };
+                unsafe { *err = prefixed_err(prefix, e) }
+            }
+        }
+    }
+}

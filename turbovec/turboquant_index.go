@@ -93,3 +93,61 @@ func cstringsToC(s []string) **C.char {
 	out := C.calloc(C.size_t(len(s)), C.size_t(unsafe.Sizeof((*C.char)(nil))))
 	return (**C.char)(out)
 }
+
+// Add inserts n = len(vectors)/dim vectors into the index. On a lazy
+// index, the first Add commits the dim.
+//
+// The returned error wraps a typed sentinel: ErrInvalidDim,
+// ErrBufferNotMultipleOfDim, ErrInvalidInputValue.
+func (i *TurboQuantIndex) Add(vectors []float32) error {
+	if i.h == nil {
+		return &Error{Op: "Add", Msg: "index is closed"}
+	}
+	if len(vectors) == 0 {
+		return nil
+	}
+	dim, _ := i.Dim()
+	if dim == 0 {
+		// Lazy: caller must use AddWithDim instead. We reject here to
+		// avoid an ambiguous contract.
+		return &Error{Op: "Add", Msg: "dim not committed; use AddWithDim on a lazy index"}
+	}
+	if len(vectors)%dim != 0 {
+		return &Error{Op: "Add", Err: ErrBufferNotMultipleOfDim}
+	}
+	var cerr *C.char
+	C.tq_add(
+		i.h,
+		(*C.float)(unsafe.Pointer(&vectors[0])),
+		C.size_t(len(vectors)/dim),
+		C.size_t(dim),
+		&cerr,
+	)
+	if err := takeErr(cerr); err != nil {
+		return &Error{Op: "Add", Err: err, Msg: err.Error()}
+	}
+	return nil
+}
+
+// AddWithDim inserts n = len(vectors)/dim vectors and commits the
+// dim on a lazy index. On an eager index, dim must match.
+func (i *TurboQuantIndex) AddWithDim(vectors []float32, dim int) error {
+	if i.h == nil {
+		return &Error{Op: "AddWithDim", Msg: "index is closed"}
+	}
+	if len(vectors)%dim != 0 {
+		return &Error{Op: "AddWithDim", Err: ErrBufferNotMultipleOfDim}
+	}
+	var cerr *C.char
+	C.tq_add(
+		i.h,
+		(*C.float)(unsafe.Pointer(&vectors[0])),
+		C.size_t(len(vectors)/dim),
+		C.size_t(dim),
+		&cerr,
+	)
+	if err := takeErr(cerr); err != nil {
+		return &Error{Op: "AddWithDim", Err: err, Msg: err.Error()}
+	}
+	return nil
+}
