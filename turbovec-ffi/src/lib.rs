@@ -368,3 +368,59 @@ pub extern "C" fn id_dim(h: *const IdHandle) -> usize {
 pub extern "C" fn id_bit_width(h: *const IdHandle) -> u32 {
     unsafe { (*h).inner.bit_width() as u32 }
 }
+
+#[no_mangle]
+pub extern "C" fn id_add_with_ids(
+    h: *mut IdHandle,
+    vectors: *const f32,
+    n: usize,
+    dim: usize,
+    ids: *const u64,
+    err: *mut *mut c_char,
+) {
+    if h.is_null() || vectors.is_null() || ids.is_null() {
+        if !err.is_null() {
+            unsafe {
+                *err = prefixed_err(error::PREFIX_INVALID_DIM, "null handle or buffer")
+            }
+        }
+        return;
+    }
+    let v_slice = unsafe { std::slice::from_raw_parts(vectors, n * dim) };
+    let i_slice = unsafe { std::slice::from_raw_parts(ids, n) };
+    let res = unsafe { (*h).inner.add_with_ids_2d(v_slice, dim, i_slice) };
+    if !err.is_null() {
+        match res {
+            Ok(()) => unsafe { *err = std::ptr::null_mut() },
+            Err(e) => {
+                let prefix = match &e {
+                    turbovec::AddError::DimMismatch { .. } => error::PREFIX_INVALID_DIM,
+                    turbovec::AddError::DimNotMultipleOf8(_) => {
+                        error::PREFIX_DIM_NOT_MULTIPLE_OF_8
+                    }
+                    turbovec::AddError::VectorBufferNotMultipleOfDim { .. } => {
+                        error::PREFIX_BUFFER_NOT_MULTIPLE_OF_DIM
+                    }
+                    turbovec::AddError::IdsCountMismatch { .. } => {
+                        error::PREFIX_IDS_COUNT_MISMATCH
+                    }
+                    turbovec::AddError::IdAlreadyPresent(_) => error::PREFIX_DUPLICATE_ID,
+                    turbovec::AddError::InvalidInputValue { .. } => {
+                        error::PREFIX_INVALID_INPUT_VALUE
+                    }
+                };
+                unsafe { *err = prefixed_err(prefix, e) }
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn id_remove(h: *mut IdHandle, id: u64) -> bool {
+    unsafe { (*h).inner.remove(id) }
+}
+
+#[no_mangle]
+pub extern "C" fn id_contains(h: *const IdHandle, id: u64) -> bool {
+    unsafe { (*h).inner.contains(id) }
+}
