@@ -223,3 +223,67 @@ pub extern "C" fn tq_results_free(r: TqSearchResults) {
         }
     }
 }
+
+#[no_mangle]
+pub extern "C" fn tq_swap_remove(h: *mut TqHandle, idx: usize, err: *mut *mut c_char) -> usize {
+    let handle = unsafe { &mut *h };
+    let len = handle.inner.len();
+    if idx >= len {
+        if !err.is_null() {
+            unsafe {
+                *err = prefixed_err(
+                    error::PREFIX_INDEX_OUT_OF_RANGE,
+                    format!("index {} out of range for length {}", idx, len),
+                )
+            }
+        }
+        return usize::MAX;
+    }
+    if !err.is_null() {
+        unsafe { *err = std::ptr::null_mut() }
+    }
+    handle.inner.swap_remove(idx)
+}
+
+#[no_mangle]
+pub extern "C" fn tq_write(h: *const TqHandle, path: *const c_char) -> i32 {
+    let path_str = unsafe { std::ffi::CStr::from_ptr(path) };
+    let path_os: &std::path::Path = match path_str.to_str() {
+        Ok(s) => std::path::Path::new(s),
+        Err(_) => return -1,
+    };
+    match unsafe { (*h).inner.write(path_os) } {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn tq_load(path: *const c_char, err: *mut *mut c_char) -> *mut TqHandle {
+    let path_str = unsafe { std::ffi::CStr::from_ptr(path) };
+    let path_os: &std::path::Path = match path_str.to_str() {
+        Ok(s) => std::path::Path::new(s),
+        Err(_) => {
+            if !err.is_null() {
+                unsafe { *err = prefixed_err(error::PREFIX_IO, "path is not valid UTF-8") }
+            }
+            return std::ptr::null_mut();
+        }
+    };
+    match CoreTq::load(path_os) {
+        Ok(core) => {
+            if !err.is_null() {
+                unsafe { *err = std::ptr::null_mut() }
+            }
+            Box::into_raw(Box::new(TqHandle {
+                inner: Box::new(core),
+            }))
+        }
+        Err(e) => {
+            if !err.is_null() {
+                unsafe { *err = prefixed_err(error::PREFIX_IO, e) }
+            }
+            std::ptr::null_mut()
+        }
+    }
+}

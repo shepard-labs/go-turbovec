@@ -214,3 +214,50 @@ func copyTqResults(cr C.TqSearchResults) (Results, error) {
 	copy(iCopy, indices)
 	return Results{Scores: sCopy, Indices: iCopy, Nq: int(cr.nq), K: int(cr.k)}, nil
 }
+
+// SwapRemove removes the vector at idx in O(1) by swapping with the last
+// vector. The last vector moves into the deleted slot. Returns the
+// previous index of the moved vector; equals idx when idx was already
+// the last element.
+func (i *TurboQuantIndex) SwapRemove(idx int) (int, error) {
+	if i.h == nil {
+		return 0, &Error{Op: "SwapRemove", Msg: "index is closed"}
+	}
+	var cerr *C.char
+	moved := C.tq_swap_remove(i.h, C.size_t(idx), &cerr)
+	if err := takeErr(cerr); err != nil {
+		return 0, &Error{Op: "SwapRemove", Err: err, Msg: err.Error()}
+	}
+	if moved == C.size_t(^uint(0)>>1) { // SIZE_MAX
+		return 0, &Error{Op: "SwapRemove", Err: ErrIndexOutOfRange, Msg: "upstream returned SIZE_MAX"}
+	}
+	return int(moved), nil
+}
+
+// Write serializes the index to a .tq file.
+func (i *TurboQuantIndex) Write(path string) error {
+	if i.h == nil {
+		return &Error{Op: "Write", Msg: "index is closed"}
+	}
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	if rc := C.tq_write(i.h, cpath); rc != 0 {
+		return &Error{Op: "Write", Err: ErrIO, Msg: path}
+	}
+	return nil
+}
+
+// LoadTurboQuantIndex loads an index previously written by Write.
+func LoadTurboQuantIndex(path string) (*TurboQuantIndex, error) {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	var cerr *C.char
+	h := C.tq_load(cpath, &cerr)
+	if err := takeErr(cerr); err != nil {
+		return nil, &Error{Op: "LoadTurboQuantIndex", Err: err, Msg: path}
+	}
+	if h == nil {
+		return nil, &Error{Op: "LoadTurboQuantIndex", Msg: "tq_load returned null without error"}
+	}
+	return newTurboQuantIndex(h), nil
+}

@@ -214,6 +214,76 @@ func TestTurboQuantIndex_SearchWithMask_LengthMismatch(t *testing.T) {
 	}
 }
 
+func TestTurboQuantIndex_SwapRemove(t *testing.T) {
+	idx, _ := NewTurboQuantIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+		0, 0, 1, 0, 0, 0, 0, 0,
+	}
+	idx.Add(vecs)
+	if got := idx.Len(); got != 3 {
+		t.Fatalf("Len()=%d, want 3", got)
+	}
+	movedFrom, err := idx.SwapRemove(0)
+	if err != nil {
+		t.Fatalf("SwapRemove: %v", err)
+	}
+	if got := idx.Len(); got != 2 {
+		t.Errorf("Len()=%d, want 2", got)
+	}
+	if movedFrom != 2 {
+		t.Errorf("movedFrom=%d, want 2", movedFrom)
+	}
+}
+
+func TestTurboQuantIndex_SwapRemove_OutOfRange(t *testing.T) {
+	idx, _ := NewTurboQuantIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+	}
+	idx.Add(vecs)
+	_, err := idx.SwapRemove(5)
+	if !errors.Is(err, ErrIndexOutOfRange) {
+		t.Errorf("err = %v, want errors.Is(ErrIndexOutOfRange)", err)
+	}
+}
+
+func TestTurboQuantIndex_WriteLoad(t *testing.T) {
+	idx, _ := NewTurboQuantIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+		0, 0, 1, 0, 0, 0, 0, 0,
+		0, 0, 0, 1, 0, 0, 0, 0,
+	}
+	idx.Add(vecs)
+	idx.Prepare()
+	path := filepath.Join(tmpDir(t), "idx.tq")
+	if err := idx.Write(path); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	loaded, err := LoadTurboQuantIndex(path)
+	if err != nil {
+		t.Fatalf("LoadTurboQuantIndex: %v", err)
+	}
+	defer loaded.Close()
+	if got := loaded.Len(); got != 4 {
+		t.Errorf("loaded Len()=%d, want 4", got)
+	}
+	r, err := loaded.Search([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 1)
+	if err != nil {
+		t.Fatalf("loaded Search: %v", err)
+	}
+	if r.Indices[0] != 0 {
+		t.Errorf("loaded Indices[0]=%d, want 0", r.Indices[0])
+	}
+}
+
 func tmpDir(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
