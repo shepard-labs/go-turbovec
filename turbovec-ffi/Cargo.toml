@@ -1,0 +1,14 @@
+[package]
+name = "turbovec-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+turbovec = { path = "../vendor/turbovec/turbovec" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

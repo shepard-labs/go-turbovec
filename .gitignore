@@ -1,0 +1,13 @@
+# Rust build output
+turbovec-ffi/target/
+target/
+
+# Go build output
+*.test
+*.out
+bin/
+
+# Editor
+.idea/
+.vscode/
+*.swp
