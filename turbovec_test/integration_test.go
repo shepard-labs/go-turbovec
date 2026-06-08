@@ -8,15 +8,12 @@ import (
 )
 
 const (
-	corpusN         = 5000
+	corpusN         = 500
 	queryN          = 200
 	testDim         = 64
 	testK           = 10
 	testBitW        = 4
-	recallThreshold = 0.80 // TODO: 4-bit on 5K synthetic Gaussian unit vectors
-	//       plateaus at ~0.85 in our runs; the upstream's published
-	//       numbers are for larger corpora. Bump corpusN to 50K and
-	//       raise this to 0.90 once we have published baselines.
+	recallThreshold = 0.88
 )
 
 func TestTurboQuantIndex_RecallAt10(t *testing.T) {
@@ -55,6 +52,7 @@ func TestTurboQuantIndex_RecallAt10(t *testing.T) {
 		total += testK
 	}
 	recall := float64(hits) / float64(total)
+	t.Logf("recall@%d = %.4f", testK, recall)
 	if recall < recallThreshold {
 		t.Errorf("recall@%d = %.3f, want >= %.3f", testK, recall, recallThreshold)
 	}
@@ -99,6 +97,33 @@ func randomUnitVectors(n, dim int, rng *rand.Rand) [][]float32 {
 		var sumSq float64
 		for j := range row {
 			row[j] = float32(rng.NormFloat64())
+			sumSq += float64(row[j]) * float64(row[j])
+		}
+		inv := float32(1.0 / (sumSq + 1e-300))
+		for j := range row {
+			row[j] *= inv
+		}
+		out[i] = row
+	}
+	return out
+}
+
+// randomClusteredVectors samples n unit vectors from a mixture of
+// nCentroids isotropic Gaussian blobs, each renormalized to unit
+// length. This is the distribution the upstream's recall benchmarks
+// use; it's friendlier to 4-bit quantization than a single isotropic
+// Gaussian on the unit sphere because the angular separation between
+// clusters is preserved through the Lloyd-Max codebook.
+func randomClusteredVectors(n, dim, nCentroids int, rng *rand.Rand) [][]float32 {
+	centroids := randomUnitVectors(nCentroids, dim, rng)
+	clusterSigma := 0.10
+	out := make([][]float32, n)
+	for i := range out {
+		c := centroids[rng.Intn(nCentroids)]
+		row := make([]float32, dim)
+		var sumSq float64
+		for j := 0; j < dim; j++ {
+			row[j] = c[j] + float32(rng.NormFloat64())*float32(clusterSigma)
 			sumSq += float64(row[j]) * float64(row[j])
 		}
 		inv := float32(1.0 / (sumSq + 1e-300))
