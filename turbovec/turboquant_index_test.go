@@ -133,6 +133,87 @@ func TestTurboQuantIndex_Add_InvalidInputValue(t *testing.T) {
 	}
 }
 
+func TestTurboQuantIndex_Search_Basic(t *testing.T) {
+	idx, _ := NewTurboQuantIndex(8, 4)
+	defer idx.Close()
+	// 4 unit vectors along the first 4 of 8 axes (dim must be a multiple of 8).
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+		0, 0, 1, 0, 0, 0, 0, 0,
+		0, 0, 0, 1, 0, 0, 0, 0,
+	}
+	if err := idx.Add(vecs); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	idx.Prepare()
+	// Query close to v0.
+	r, err := idx.Search([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 2)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if r.Nq != 1 || r.K != 2 {
+		t.Fatalf("Nq=%d K=%d, want 1 2", r.Nq, r.K)
+	}
+	if len(r.Scores) != 2 || len(r.Indices) != 2 {
+		t.Fatalf("len(Scores)=%d len(Indices)=%d, want 2 2", len(r.Scores), len(r.Indices))
+	}
+	// The first result should be index 0 with the highest score.
+	if r.Indices[0] != 0 {
+		t.Errorf("Indices[0] = %d, want 0", r.Indices[0])
+	}
+}
+
+func TestTurboQuantIndex_SearchWithMask(t *testing.T) {
+	idx, _ := NewTurboQuantIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+		0, 0, 1, 0, 0, 0, 0, 0,
+		0, 0, 0, 1, 0, 0, 0, 0,
+	}
+	idx.Add(vecs)
+	idx.Prepare()
+	// Allow only index 2.
+	mask := []bool{false, false, true, false}
+	r, err := idx.SearchWithMask([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 2, mask)
+	if err != nil {
+		t.Fatalf("SearchWithMask: %v", err)
+	}
+	if r.K != 1 {
+		t.Errorf("K = %d, want 1", r.K)
+	}
+	if r.Indices[0] != 2 {
+		t.Errorf("Indices[0] = %d, want 2", r.Indices[0])
+	}
+}
+
+func TestTurboQuantIndex_Search_WrongDim(t *testing.T) {
+	idx, _ := NewTurboQuantIndex(8, 4)
+	defer idx.Close()
+	_, err := idx.Search([]float32{1, 0, 0, 0}, 1)
+	if !errors.Is(err, ErrInvalidDim) {
+		t.Errorf("err = %v, want errors.Is(ErrInvalidDim)", err)
+	}
+}
+
+func TestTurboQuantIndex_SearchWithMask_LengthMismatch(t *testing.T) {
+	idx, _ := NewTurboQuantIndex(8, 4)
+	defer idx.Close()
+	vecs := []float32{
+		1, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 0, 0, 0, 0, 0, 0,
+	}
+	idx.Add(vecs)
+	idx.Prepare()
+	mask := []bool{true} // length 1, but Len()=2
+	_, err := idx.SearchWithMask([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 1, mask)
+	if err == nil {
+		t.Error("want error for mask length mismatch, got nil")
+	}
+}
+
 func tmpDir(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()

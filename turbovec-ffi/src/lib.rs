@@ -39,6 +39,15 @@ pub struct TqHandle {
     inner: Box<CoreTq>,
 }
 
+/// Search result struct. Mirrors cabi.h's TqSearchResults.
+#[repr(C)]
+pub struct TqSearchResults {
+    pub scores: *mut f32,
+    pub indices: *mut i64,
+    pub nq: usize,
+    pub k: usize,
+}
+
 #[no_mangle]
 pub extern "C" fn tq_new(
     dim: usize,
@@ -160,6 +169,57 @@ pub extern "C" fn tq_add(
                 };
                 unsafe { *err = prefixed_err(prefix, e) }
             }
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn tq_prepare(h: *const TqHandle) {
+    unsafe { (*h).inner.prepare() }
+}
+
+#[no_mangle]
+pub extern "C" fn tq_search(
+    h: *const TqHandle,
+    queries: *const f32,
+    nq: usize,
+    dim: usize,
+    k: usize,
+    mask: *const u8, // Option<&[u8]>, 1 byte per bool
+) -> TqSearchResults {
+    let handle = unsafe { &*h };
+    let q_slice = unsafe { std::slice::from_raw_parts(queries, nq * dim) };
+    let mask_slice: Option<Vec<bool>> = if mask.is_null() {
+        None
+    } else {
+        let raw = unsafe { std::slice::from_raw_parts(mask, handle.inner.len()) };
+        Some(raw.iter().map(|&b| b != 0).collect())
+    };
+    let res = handle.inner.search_with_mask(q_slice, k, mask_slice.as_deref());
+    let mut scores = res.scores.into_boxed_slice();
+    let mut indices = res.indices.into_boxed_slice();
+    let scores_ptr = scores.as_mut_ptr();
+    let indices_ptr = indices.as_mut_ptr();
+    std::mem::forget(scores);
+    std::mem::forget(indices);
+    TqSearchResults {
+        scores: scores_ptr,
+        indices: indices_ptr,
+        nq: res.nq,
+        k: res.k,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn tq_results_free(r: TqSearchResults) {
+    if !r.scores.is_null() {
+        unsafe {
+            let _ = Box::from_raw(std::slice::from_raw_parts_mut(r.scores, r.nq * r.k));
+        }
+    }
+    if !r.indices.is_null() {
+        unsafe {
+            let _ = Box::from_raw(std::slice::from_raw_parts_mut(r.indices, r.nq * r.k));
         }
     }
 }

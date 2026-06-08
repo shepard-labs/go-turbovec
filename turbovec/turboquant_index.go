@@ -151,3 +151,66 @@ func (i *TurboQuantIndex) AddWithDim(vectors []float32, dim int) error {
 	}
 	return nil
 }
+
+// Prepare eagerly materialises the lazy caches (rotation matrix, Lloyd-Max
+// centroids, SIMD-blocked code layout) so the first Search does not pay
+// the one-time initialisation cost.
+func (i *TurboQuantIndex) Prepare() {
+	C.tq_prepare(i.h)
+}
+
+// Search returns the top-k nearest neighbors of each query vector.
+// queries is row-major (nq, dim). The returned Results has K=k for queries
+// that are not on a lazy index, and min(k, n_vectors) when k > n.
+func (i *TurboQuantIndex) Search(queries []float32, k int) (Results, error) {
+	return i.SearchWithMask(queries, k, nil)
+}
+
+// SearchWithMask restricts the search to slots where mask[i] == true. The
+// returned k is min(k, mask.sum()).
+func (i *TurboQuantIndex) SearchWithMask(queries []float32, k int, mask []bool) (Results, error) {
+	if i.h == nil {
+		return Results{}, &Error{Op: "Search", Msg: "index is closed"}
+	}
+	dim, _ := i.Dim()
+	if dim == 0 {
+		return Results{}, &Error{Op: "Search", Err: ErrInvalidDim, Msg: "index dim is uncommitted"}
+	}
+	if len(queries)%dim != 0 {
+		return Results{}, &Error{Op: "Search", Err: ErrInvalidDim}
+	}
+	nq := len(queries) / dim
+	var cmask *C.uint8_t
+	if len(mask) > 0 {
+		if len(mask) != i.Len() {
+			return Results{}, &Error{Op: "Search", Err: ErrBufferNotMultipleOfDim, Msg: "mask length does not match index size"}
+		}
+		var err error
+		cmask, err = boolSliceToCBytes(mask)
+		if err != nil {
+			return Results{}, &Error{Op: "Search", Err: err, Msg: "calloc failed"}
+		}
+		defer C.free(unsafe.Pointer(cmask))
+	}
+	var qptr *C.float
+	if len(queries) > 0 {
+		qptr = (*C.float)(unsafe.Pointer(&queries[0]))
+	}
+	cr := C.tq_search(i.h, qptr, C.size_t(nq), C.size_t(dim), C.size_t(k), cmask)
+	defer C.tq_results_free(cr)
+	return copyTqResults(cr)
+}
+
+func copyTqResults(cr C.TqSearchResults) (Results, error) {
+	n := int(cr.nq) * int(cr.k)
+	if n == 0 {
+		return Results{Nq: int(cr.nq), K: int(cr.k)}, nil
+	}
+	scores := unsafe.Slice((*float32)(unsafe.Pointer(cr.scores)), n)
+	indices := unsafe.Slice((*int64)(unsafe.Pointer(cr.indices)), n)
+	sCopy := make([]float32, n)
+	copy(sCopy, scores)
+	iCopy := make([]int64, n)
+	copy(iCopy, indices)
+	return Results{Scores: sCopy, Indices: iCopy, Nq: int(cr.nq), K: int(cr.k)}, nil
+}
