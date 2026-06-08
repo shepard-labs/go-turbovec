@@ -8,6 +8,7 @@
 use std::ffi::CString;
 use std::os::raw::c_char;
 
+use turbovec::IdMapIndex as CoreIdMap;
 use turbovec::TurboQuantIndex as CoreTq;
 
 pub mod error;
@@ -46,6 +47,12 @@ pub struct TqSearchResults {
     pub indices: *mut i64,
     pub nq: usize,
     pub k: usize,
+}
+
+/// Opaque handle to a heap-allocated `IdMapIndex`.
+#[repr(C)]
+pub struct IdHandle {
+    inner: Box<CoreIdMap>,
 }
 
 #[no_mangle]
@@ -286,4 +293,78 @@ pub extern "C" fn tq_load(path: *const c_char, err: *mut *mut c_char) -> *mut Tq
             std::ptr::null_mut()
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn id_new(
+    dim: usize,
+    bit_width: u32,
+    err: *mut *mut c_char,
+) -> *mut IdHandle {
+    match CoreIdMap::new(dim, bit_width as usize) {
+        Ok(core) => {
+            if !err.is_null() {
+                unsafe { *err = std::ptr::null_mut() };
+            }
+            Box::into_raw(Box::new(IdHandle {
+                inner: Box::new(core),
+            }))
+        }
+        Err(e) => {
+            if !err.is_null() {
+                let prefix = match &e {
+                    turbovec::ConstructError::BitWidthOutOfRange(_) => {
+                        error::PREFIX_BIT_WIDTH
+                    }
+                    turbovec::ConstructError::DimNotPositiveMultipleOf8(_) => {
+                        error::PREFIX_DIM_NOT_MULTIPLE_OF_8
+                    }
+                };
+                unsafe { *err = prefixed_err(prefix, e) };
+            }
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn id_new_lazy(bit_width: u32, err: *mut *mut c_char) -> *mut IdHandle {
+    match CoreIdMap::new_lazy(bit_width as usize) {
+        Ok(core) => {
+            if !err.is_null() {
+                unsafe { *err = std::ptr::null_mut() };
+            }
+            Box::into_raw(Box::new(IdHandle {
+                inner: Box::new(core),
+            }))
+        }
+        Err(e) => {
+            if !err.is_null() {
+                unsafe { *err = prefixed_err(error::PREFIX_BIT_WIDTH, e) };
+            }
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn id_drop(h: *mut IdHandle) {
+    if !h.is_null() {
+        unsafe { drop(Box::from_raw(h)) }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn id_len(h: *const IdHandle) -> usize {
+    unsafe { (*h).inner.len() }
+}
+
+#[no_mangle]
+pub extern "C" fn id_dim(h: *const IdHandle) -> usize {
+    unsafe { (*h).inner.dim() }
+}
+
+#[no_mangle]
+pub extern "C" fn id_bit_width(h: *const IdHandle) -> u32 {
+    unsafe { (*h).inner.bit_width() as u32 }
 }
