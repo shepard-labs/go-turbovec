@@ -4,6 +4,7 @@
 package main
 
 // Build the C-ABI shim so cgo has a lib to link against.
+//
 //go:generate go run gen.go
 func main() {
 	// Intentionally empty: `make generate` (cargo build) is what actually

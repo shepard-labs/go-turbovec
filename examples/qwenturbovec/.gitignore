@@ -1,0 +1,10 @@
+# Compiled binary (the build command in the README places it in ./bin)
+qwenturbovec
+bin/
+
+# Cached data: parquet shards, model files, index
+data/
+
+# Test/profile outputs
+*.test
+*.out

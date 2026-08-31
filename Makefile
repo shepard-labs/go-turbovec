@@ -1,10 +1,10 @@
-.PHONY: all build test clean generate
+.PHONY: all build test clean generate submodules
 
 UNAME_S := $(shell uname -s)
 
 all: build
 
-generate:
+generate: submodules
 	cd turbovec-ffi && cargo build --release
 
 build: generate
@@ -19,5 +19,5 @@ clean:
 
 # CI uses these. Locally you may have already initialized the submodule.
 submodules:
-	git submodule update --init --recursive
-
+	git submodule update --init --filter=blob:none vendor/turbovec
+	git -C vendor/turbovec sparse-checkout set --no-cone /turbovec/ /LICENSE /README.md

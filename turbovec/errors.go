@@ -9,16 +9,16 @@ import (
 // Sentinels — match the upstream's error taxonomy. Wrap with *Error via
 // errors.Is / errors.As.
 var (
-	ErrInvalidDim            = errors.New("turbovec: invalid dim")
-	ErrInvalidBitWidth       = errors.New("turbovec: invalid bit width (must be 2, 3, or 4)")
+	ErrInvalidDim             = errors.New("turbovec: invalid dim")
+	ErrInvalidBitWidth        = errors.New("turbovec: invalid bit width (must be 2, 3, or 4)")
 	ErrBufferNotMultipleOfDim = errors.New("turbovec: vector buffer length is not a multiple of dim")
-	ErrIDsCountMismatch      = errors.New("turbovec: ids count does not match vectors length")
-	ErrDuplicateID           = errors.New("turbovec: id already present in index")
-	ErrInvalidInputValue     = errors.New("turbovec: input contains non-finite or out-of-range value")
-	ErrEmptyAllowlist        = errors.New("turbovec: allowlist is empty")
-	ErrUnknownID             = errors.New("turbovec: allowlist contains id(s) not present in index")
-	ErrIndexOutOfRange       = errors.New("turbovec: index out of range")
-	ErrIO                    = errors.New("turbovec: I/O error")
+	ErrIDsCountMismatch       = errors.New("turbovec: ids count does not match vectors length")
+	ErrDuplicateID            = errors.New("turbovec: id already present in index")
+	ErrInvalidInputValue      = errors.New("turbovec: input contains non-finite or out-of-range value")
+	ErrEmptyAllowlist         = errors.New("turbovec: allowlist is empty")
+	ErrUnknownID              = errors.New("turbovec: allowlist contains id(s) not present in index")
+	ErrIndexOutOfRange        = errors.New("turbovec: index out of range")
+	ErrIO                     = errors.New("turbovec: I/O error")
 )
 
 // Error wraps an upstream error with its operation context.

@@ -12,3 +12,4 @@ bin/
 .vscode/
 *.swp
 /.codegraph
+/docs

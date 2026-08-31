@@ -65,11 +65,7 @@ pub struct IdHandle {
 }
 
 #[no_mangle]
-pub extern "C" fn tq_new(
-    dim: usize,
-    bit_width: u32,
-    err: *mut *mut c_char,
-) -> *mut TqHandle {
+pub extern "C" fn tq_new(dim: usize, bit_width: u32, err: *mut *mut c_char) -> *mut TqHandle {
     match CoreTq::new(dim, bit_width as usize) {
         Ok(core) => {
             if !err.is_null() {
@@ -82,12 +78,12 @@ pub extern "C" fn tq_new(
         Err(e) => {
             if !err.is_null() {
                 let prefix = match &e {
-                    turbovec::ConstructError::BitWidthOutOfRange(_) => {
-                        error::PREFIX_BIT_WIDTH
-                    }
+                    turbovec::ConstructError::BitWidthOutOfRange(_) => error::PREFIX_BIT_WIDTH,
                     turbovec::ConstructError::DimNotPositiveMultipleOf8(_) => {
                         error::PREFIX_DIM_NOT_MULTIPLE_OF_8
                     }
+                    turbovec::ConstructError::DimTooLarge { .. } => error::PREFIX_INVALID_DIM,
+                    _ => error::PREFIX_INVALID_DIM,
                 };
                 unsafe { *err = prefixed_err(prefix, e) };
             }
@@ -148,9 +144,7 @@ pub extern "C" fn tq_add(
 ) {
     if h.is_null() || vectors.is_null() {
         if !err.is_null() {
-            unsafe {
-                *err = prefixed_err(error::PREFIX_INVALID_DIM, "null handle or buffer")
-            }
+            unsafe { *err = prefixed_err(error::PREFIX_INVALID_DIM, "null handle or buffer") }
         }
         return;
     }
@@ -169,19 +163,17 @@ pub extern "C" fn tq_add(
             Err(e) => {
                 let prefix = match &e {
                     turbovec::AddError::DimMismatch { .. } => error::PREFIX_INVALID_DIM,
-                    turbovec::AddError::DimNotMultipleOf8(_) => {
-                        error::PREFIX_DIM_NOT_MULTIPLE_OF_8
-                    }
+                    turbovec::AddError::DimNotMultipleOf8(_) => error::PREFIX_DIM_NOT_MULTIPLE_OF_8,
+                    turbovec::AddError::DimTooLarge { .. } => error::PREFIX_INVALID_DIM,
                     turbovec::AddError::VectorBufferNotMultipleOfDim { .. } => {
                         error::PREFIX_BUFFER_NOT_MULTIPLE_OF_DIM
                     }
-                    turbovec::AddError::IdsCountMismatch { .. } => {
-                        error::PREFIX_IDS_COUNT_MISMATCH
-                    }
+                    turbovec::AddError::IdsCountMismatch { .. } => error::PREFIX_IDS_COUNT_MISMATCH,
                     turbovec::AddError::IdAlreadyPresent(_) => error::PREFIX_DUPLICATE_ID,
                     turbovec::AddError::InvalidInputValue { .. } => {
                         error::PREFIX_INVALID_INPUT_VALUE
                     }
+                    _ => error::PREFIX_INVALID_DIM,
                 };
                 unsafe { *err = prefixed_err(prefix, e) }
             }
@@ -211,7 +203,9 @@ pub extern "C" fn tq_search(
         let raw = unsafe { std::slice::from_raw_parts(mask, handle.inner.len()) };
         Some(raw.iter().map(|&b| b != 0).collect())
     };
-    let res = handle.inner.search_with_mask(q_slice, k, mask_slice.as_deref());
+    let res = handle
+        .inner
+        .search_with_mask(q_slice, k, mask_slice.as_deref());
     let mut scores = res.scores.into_boxed_slice();
     let mut indices = res.indices.into_boxed_slice();
     let scores_ptr = scores.as_mut_ptr();
@@ -305,11 +299,7 @@ pub extern "C" fn tq_load(path: *const c_char, err: *mut *mut c_char) -> *mut Tq
 }
 
 #[no_mangle]
-pub extern "C" fn id_new(
-    dim: usize,
-    bit_width: u32,
-    err: *mut *mut c_char,
-) -> *mut IdHandle {
+pub extern "C" fn id_new(dim: usize, bit_width: u32, err: *mut *mut c_char) -> *mut IdHandle {
     match CoreIdMap::new(dim, bit_width as usize) {
         Ok(core) => {
             if !err.is_null() {
@@ -322,12 +312,12 @@ pub extern "C" fn id_new(
         Err(e) => {
             if !err.is_null() {
                 let prefix = match &e {
-                    turbovec::ConstructError::BitWidthOutOfRange(_) => {
-                        error::PREFIX_BIT_WIDTH
-                    }
+                    turbovec::ConstructError::BitWidthOutOfRange(_) => error::PREFIX_BIT_WIDTH,
                     turbovec::ConstructError::DimNotPositiveMultipleOf8(_) => {
                         error::PREFIX_DIM_NOT_MULTIPLE_OF_8
                     }
+                    turbovec::ConstructError::DimTooLarge { .. } => error::PREFIX_INVALID_DIM,
+                    _ => error::PREFIX_INVALID_DIM,
                 };
                 unsafe { *err = prefixed_err(prefix, e) };
             }
@@ -389,9 +379,7 @@ pub extern "C" fn id_add_with_ids(
 ) {
     if h.is_null() || vectors.is_null() || ids.is_null() {
         if !err.is_null() {
-            unsafe {
-                *err = prefixed_err(error::PREFIX_INVALID_DIM, "null handle or buffer")
-            }
+            unsafe { *err = prefixed_err(error::PREFIX_INVALID_DIM, "null handle or buffer") }
         }
         return;
     }
@@ -404,19 +392,17 @@ pub extern "C" fn id_add_with_ids(
             Err(e) => {
                 let prefix = match &e {
                     turbovec::AddError::DimMismatch { .. } => error::PREFIX_INVALID_DIM,
-                    turbovec::AddError::DimNotMultipleOf8(_) => {
-                        error::PREFIX_DIM_NOT_MULTIPLE_OF_8
-                    }
+                    turbovec::AddError::DimNotMultipleOf8(_) => error::PREFIX_DIM_NOT_MULTIPLE_OF_8,
+                    turbovec::AddError::DimTooLarge { .. } => error::PREFIX_INVALID_DIM,
                     turbovec::AddError::VectorBufferNotMultipleOfDim { .. } => {
                         error::PREFIX_BUFFER_NOT_MULTIPLE_OF_DIM
                     }
-                    turbovec::AddError::IdsCountMismatch { .. } => {
-                        error::PREFIX_IDS_COUNT_MISMATCH
-                    }
+                    turbovec::AddError::IdsCountMismatch { .. } => error::PREFIX_IDS_COUNT_MISMATCH,
                     turbovec::AddError::IdAlreadyPresent(_) => error::PREFIX_DUPLICATE_ID,
                     turbovec::AddError::InvalidInputValue { .. } => {
                         error::PREFIX_INVALID_INPUT_VALUE
                     }
+                    _ => error::PREFIX_INVALID_DIM,
                 };
                 unsafe { *err = prefixed_err(prefix, e) }
             }
@@ -521,11 +507,9 @@ pub extern "C" fn id_search(
                     unknown
                 ))
             } else {
-                std::panic::catch_unwind(
-                    std::panic::AssertUnwindSafe(|| {
-                        handle.inner.search_with_allowlist(q_slice, k, Some(allow))
-                    }),
-                )
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    handle.inner.search_with_allowlist(q_slice, k, Some(allow))
+                }))
                 .map_err(|_| "search_with_allowlist panicked".to_string())
             }
         }
