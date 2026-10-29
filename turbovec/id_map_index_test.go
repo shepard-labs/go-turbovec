@@ -2,6 +2,7 @@ package turbovec
 
 import (
 	"errors"
+	"math"
 	"path/filepath"
 	"testing"
 )
@@ -229,6 +230,17 @@ func TestIdMapIndex_SearchWithAllowlist_UnknownID(t *testing.T) {
 	)
 	if !errors.Is(err, ErrUnknownID) {
 		t.Errorf("err = %v, want errors.Is(ErrUnknownID)", err)
+	}
+}
+
+func TestIdMapIndex_Search_InvalidQueryValue(t *testing.T) {
+	idx, _ := NewIdMapIndex(8, 4)
+	defer idx.Close()
+	idx.AddWithIDs([]float32{1, 0, 0, 0, 0, 0, 0, 0}, []uint64{1})
+	idx.Prepare()
+	_, err := idx.Search([]float32{float32(math.NaN()), 0, 0, 0, 0, 0, 0, 0}, 1)
+	if !errors.Is(err, ErrInvalidInputValue) {
+		t.Errorf("err = %v, want errors.Is(ErrInvalidInputValue)", err)
 	}
 }
 

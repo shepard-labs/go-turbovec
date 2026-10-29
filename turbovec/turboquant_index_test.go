@@ -198,6 +198,17 @@ func TestTurboQuantIndex_Search_WrongDim(t *testing.T) {
 	}
 }
 
+func TestTurboQuantIndex_Search_InvalidQueryValue(t *testing.T) {
+	idx, _ := NewTurboQuantIndex(8, 4)
+	defer idx.Close()
+	idx.Add([]float32{1, 0, 0, 0, 0, 0, 0, 0})
+	idx.Prepare()
+	_, err := idx.Search([]float32{float32(math.NaN()), 0, 0, 0, 0, 0, 0, 0}, 1)
+	if !errors.Is(err, ErrInvalidInputValue) {
+		t.Errorf("err = %v, want errors.Is(ErrInvalidInputValue)", err)
+	}
+}
+
 func TestTurboQuantIndex_SearchWithMask_LengthMismatch(t *testing.T) {
 	idx, _ := NewTurboQuantIndex(8, 4)
 	defer idx.Close()

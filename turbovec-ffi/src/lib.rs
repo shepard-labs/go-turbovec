@@ -126,7 +126,7 @@ pub extern "C" fn tq_len(h: *const TqHandle) -> usize {
 
 #[no_mangle]
 pub extern "C" fn tq_dim(h: *const TqHandle) -> usize {
-    unsafe { (*h).inner.dim() } // returns 0 for uncommitted lazy
+    unsafe { (*h).inner.dim_opt().unwrap_or(0) } // returns 0 for uncommitted lazy
 }
 
 #[no_mangle]
@@ -162,14 +162,16 @@ pub extern "C" fn tq_add(
             Ok(()) => unsafe { *err = std::ptr::null_mut() },
             Err(e) => {
                 let prefix = match &e {
-                    turbovec::AddError::DimMismatch { .. } => error::PREFIX_INVALID_DIM,
+                    turbovec::AddError::DimMismatch { .. }
+                    | turbovec::AddError::DimTooLarge { .. }
+                    | turbovec::AddError::ZeroDim => error::PREFIX_INVALID_DIM,
                     turbovec::AddError::DimNotMultipleOf8(_) => error::PREFIX_DIM_NOT_MULTIPLE_OF_8,
-                    turbovec::AddError::DimTooLarge { .. } => error::PREFIX_INVALID_DIM,
                     turbovec::AddError::VectorBufferNotMultipleOfDim { .. } => {
                         error::PREFIX_BUFFER_NOT_MULTIPLE_OF_DIM
                     }
                     turbovec::AddError::IdsCountMismatch { .. } => error::PREFIX_IDS_COUNT_MISMATCH,
-                    turbovec::AddError::IdAlreadyPresent(_) => error::PREFIX_DUPLICATE_ID,
+                    turbovec::AddError::IdAlreadyPresent(_)
+                    | turbovec::AddError::DuplicateIdInBatch(_) => error::PREFIX_DUPLICATE_ID,
                     turbovec::AddError::InvalidInputValue { .. } => {
                         error::PREFIX_INVALID_INPUT_VALUE
                     }
@@ -194,6 +196,7 @@ pub extern "C" fn tq_search(
     dim: usize,
     k: usize,
     mask: *const u8, // Option<&[u8]>, 1 byte per bool
+    err: *mut *mut c_char,
 ) -> TqSearchResults {
     let handle = unsafe { &*h };
     let q_slice = unsafe { std::slice::from_raw_parts(queries, nq * dim) };
@@ -203,20 +206,48 @@ pub extern "C" fn tq_search(
         let raw = unsafe { std::slice::from_raw_parts(mask, handle.inner.len()) };
         Some(raw.iter().map(|&b| b != 0).collect())
     };
-    let res = handle
+    match handle
         .inner
-        .search_with_mask(q_slice, k, mask_slice.as_deref());
-    let mut scores = res.scores.into_boxed_slice();
-    let mut indices = res.indices.into_boxed_slice();
-    let scores_ptr = scores.as_mut_ptr();
-    let indices_ptr = indices.as_mut_ptr();
-    std::mem::forget(scores);
-    std::mem::forget(indices);
-    TqSearchResults {
-        scores: scores_ptr,
-        indices: indices_ptr,
-        nq: res.nq,
-        k: res.k,
+        .try_search_with_mask(q_slice, k, mask_slice.as_deref())
+    {
+        Ok(res) => {
+            if !err.is_null() {
+                unsafe { *err = std::ptr::null_mut() };
+            }
+            let mut scores = res.scores.into_boxed_slice();
+            let mut indices = res.indices.into_boxed_slice();
+            let scores_ptr = scores.as_mut_ptr();
+            let indices_ptr = indices.as_mut_ptr();
+            std::mem::forget(scores);
+            std::mem::forget(indices);
+            TqSearchResults {
+                scores: scores_ptr,
+                indices: indices_ptr,
+                nq: res.nq,
+                k: res.k,
+            }
+        }
+        Err(e) => {
+            if !err.is_null() {
+                let prefix = match &e {
+                    turbovec::SearchError::QueryBufferNotMultipleOfDim { .. }
+                    | turbovec::SearchError::MaskLengthMismatch { .. } => {
+                        error::PREFIX_BUFFER_NOT_MULTIPLE_OF_DIM
+                    }
+                    turbovec::SearchError::InvalidQueryValue { .. } => {
+                        error::PREFIX_INVALID_INPUT_VALUE
+                    }
+                    _ => error::PREFIX_INVALID_DIM,
+                };
+                unsafe { *err = prefixed_err(prefix, e) };
+            }
+            TqSearchResults {
+                scores: std::ptr::null_mut(),
+                indices: std::ptr::null_mut(),
+                nq,
+                k: 0,
+            }
+        }
     }
 }
 
@@ -360,7 +391,7 @@ pub extern "C" fn id_len(h: *const IdHandle) -> usize {
 
 #[no_mangle]
 pub extern "C" fn id_dim(h: *const IdHandle) -> usize {
-    unsafe { (*h).inner.dim() }
+    unsafe { (*h).inner.dim_opt().unwrap_or(0) }
 }
 
 #[no_mangle]
@@ -391,14 +422,16 @@ pub extern "C" fn id_add_with_ids(
             Ok(()) => unsafe { *err = std::ptr::null_mut() },
             Err(e) => {
                 let prefix = match &e {
-                    turbovec::AddError::DimMismatch { .. } => error::PREFIX_INVALID_DIM,
+                    turbovec::AddError::DimMismatch { .. }
+                    | turbovec::AddError::DimTooLarge { .. }
+                    | turbovec::AddError::ZeroDim => error::PREFIX_INVALID_DIM,
                     turbovec::AddError::DimNotMultipleOf8(_) => error::PREFIX_DIM_NOT_MULTIPLE_OF_8,
-                    turbovec::AddError::DimTooLarge { .. } => error::PREFIX_INVALID_DIM,
                     turbovec::AddError::VectorBufferNotMultipleOfDim { .. } => {
                         error::PREFIX_BUFFER_NOT_MULTIPLE_OF_DIM
                     }
                     turbovec::AddError::IdsCountMismatch { .. } => error::PREFIX_IDS_COUNT_MISMATCH,
-                    turbovec::AddError::IdAlreadyPresent(_) => error::PREFIX_DUPLICATE_ID,
+                    turbovec::AddError::IdAlreadyPresent(_)
+                    | turbovec::AddError::DuplicateIdInBatch(_) => error::PREFIX_DUPLICATE_ID,
                     turbovec::AddError::InvalidInputValue { .. } => {
                         error::PREFIX_INVALID_INPUT_VALUE
                     }
@@ -487,43 +520,24 @@ pub extern "C" fn id_search(
         Some(unsafe { std::slice::from_raw_parts(allowlist, allowlist_len) })
     };
 
-    // The upstream panics on empty allowlist and on unknown ids in the
-    // allowlist. Catch the panic and translate to a typed FFI error.
-    let res: Result<(Vec<f32>, Vec<u64>), String> = if let Some(allow) = allow_opt {
-        if allow.is_empty() {
-            Err("empty_allowlist: allowlist must not be empty".to_string())
-        } else {
-            // Validate that every id is present before calling the
-            // upstream. This avoids a panic for unknown ids and gives
-            // us a typed error.
-            let unknown: Vec<u64> = allow
-                .iter()
-                .copied()
-                .filter(|id| !handle.inner.contains(*id))
-                .collect();
-            if !unknown.is_empty() {
-                Err(format!(
-                    "unknown_id: allowlist contains id(s) not present in index: {:?}",
-                    unknown
-                ))
-            } else {
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    handle.inner.search_with_allowlist(q_slice, k, Some(allow))
-                }))
-                .map_err(|_| "search_with_allowlist panicked".to_string())
-            }
-        }
-    } else {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            handle.inner.search_with_allowlist(q_slice, k, None)
-        }))
-        .map_err(|_| "search_with_allowlist panicked".to_string())
-    };
-
-    match res {
-        Err(msg) => {
+    match handle
+        .inner
+        .try_search_with_allowlist(q_slice, k, allow_opt)
+    {
+        Err(e) => {
             if !err.is_null() {
-                unsafe { *err = CString::new(msg).unwrap().into_raw() };
+                let prefix = match &e {
+                    turbovec::SearchError::AllowlistEmpty => error::PREFIX_EMPTY_ALLOWLIST,
+                    turbovec::SearchError::UnknownId(_) => error::PREFIX_UNKNOWN_ID,
+                    turbovec::SearchError::QueryBufferNotMultipleOfDim { .. } => {
+                        error::PREFIX_BUFFER_NOT_MULTIPLE_OF_DIM
+                    }
+                    turbovec::SearchError::InvalidQueryValue { .. } => {
+                        error::PREFIX_INVALID_INPUT_VALUE
+                    }
+                    _ => error::PREFIX_INVALID_DIM,
+                };
+                unsafe { *err = prefixed_err(prefix, e) };
             }
             IdSearchResults {
                 scores: std::ptr::null_mut(),
@@ -532,20 +546,18 @@ pub extern "C" fn id_search(
                 k: 0,
             }
         }
-        Ok((scores, ids)) => {
-            let n = scores.len();
-            let mut scores_box = scores.into_boxed_slice();
-            let mut ids_box = ids.into_boxed_slice();
+        Ok(res) => {
+            let mut scores_box = res.scores.into_boxed_slice();
+            let mut ids_box = res.ids.into_boxed_slice();
             let sp = scores_box.as_mut_ptr();
             let ip = ids_box.as_mut_ptr();
             std::mem::forget(scores_box);
             std::mem::forget(ids_box);
-            let kk = if nq == 0 { 0 } else { n / nq };
             IdSearchResults {
                 scores: sp,
                 ids: ip,
-                nq,
-                k: kk,
+                nq: res.nq,
+                k: res.k,
             }
         }
     }

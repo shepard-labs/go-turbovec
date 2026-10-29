@@ -2,8 +2,8 @@ package turbovec
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../turbovec-ffi/include
-#cgo linux LDFLAGS: -L${SRCDIR}/../turbovec-ffi/target/release -lturbovec_ffi -lopenblas -lpthread -ldl -lm
-#cgo darwin LDFLAGS: -L${SRCDIR}/../turbovec-ffi/target/release -lturbovec_ffi -framework Accelerate
+#cgo linux LDFLAGS: -L${SRCDIR}/../turbovec-ffi/target/release -lturbovec_ffi -lpthread -ldl -lm
+#cgo darwin LDFLAGS: -L${SRCDIR}/../turbovec-ffi/target/release -lturbovec_ffi
 
 #include <stdlib.h>
 #include "cabi.h"

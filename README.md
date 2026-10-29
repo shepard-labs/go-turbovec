@@ -144,9 +144,8 @@ make build
 Requirements:
 
 - Go 1.22+
-- Rust stable toolchain
+- Rust stable toolchain (1.89+)
 - C toolchain with cgo enabled
-- OpenBLAS on Linux
 
 `make submodules` fetches the upstream `vendor/turbovec` submodule and applies the sparse checkout used by this binding.
 

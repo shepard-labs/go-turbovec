@@ -196,8 +196,12 @@ func (i *TurboQuantIndex) SearchWithMask(queries []float32, k int, mask []bool) 
 	if len(queries) > 0 {
 		qptr = (*C.float)(unsafe.Pointer(&queries[0]))
 	}
-	cr := C.tq_search(i.h, qptr, C.size_t(nq), C.size_t(dim), C.size_t(k), cmask)
+	var cerr *C.char
+	cr := C.tq_search(i.h, qptr, C.size_t(nq), C.size_t(dim), C.size_t(k), cmask, &cerr)
 	defer C.tq_results_free(cr)
+	if err := takeErr(cerr); err != nil {
+		return Results{}, &Error{Op: "Search", Err: err, Msg: err.Error()}
+	}
 	return copyTqResults(cr)
 }
 

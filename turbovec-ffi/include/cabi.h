@@ -32,7 +32,8 @@ TqHandle *tq_new_lazy(uint32_t bit_width, char **err);
 void      tq_drop(TqHandle *h);
 void      tq_add(TqHandle *h, const float *vectors, size_t n, size_t dim, char **err);
 TqSearchResults tq_search(const TqHandle *h, const float *queries, size_t nq,
-                          size_t dim, size_t k, const uint8_t *mask /* nullable */);
+                          size_t dim, size_t k, const uint8_t *mask /* nullable */,
+                          char **err);
 size_t    tq_swap_remove(TqHandle *h, size_t idx, char **err);
 void      tq_prepare(const TqHandle *h);
 int32_t   tq_write(const TqHandle *h, const char *path);
