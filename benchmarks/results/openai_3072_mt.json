@@ -1,0 +1,69 @@
+{
+  "dataset": "openai-3072",
+  "dim": 3072,
+  "n": 100000,
+  "nq": 1000,
+  "n_recall_queries": 1000,
+  "k": 64,
+  "machine": "Apple M4 Max, 16 cores, macOS arm64",
+  "env": {
+    "go_version": "go1.26.5",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "num_cpu": 16,
+    "gomaxprocs": 16
+  },
+  "exact": {
+    "search_ms_per_query": 6.925
+  },
+  "bit_widths": [
+    {
+      "bit_width": 2,
+      "build_ms": 222.553291,
+      "prepare_ms": 0.001292,
+      "recall_at_1_in_top_k": {
+        "1": 0.93,
+        "16": 1,
+        "2": 0.993,
+        "32": 1,
+        "4": 1,
+        "64": 1,
+        "8": 1
+      },
+      "search_ms_per_query": 0.111,
+      "insert_single_us": 10.5,
+      "insert_batch100_us_per_vector": 6.14,
+      "write_ms": 38.128,
+      "load_first_search_ms": 12.077,
+      "file_mb": 75.2,
+      "fp32_mb": 1171.9,
+      "compression_ratio": 15.6
+    },
+    {
+      "bit_width": 4,
+      "build_ms": 178.255875,
+      "prepare_ms": 0.000625,
+      "recall_at_1_in_top_k": {
+        "1": 0.984,
+        "16": 1,
+        "2": 0.998,
+        "32": 1,
+        "4": 1,
+        "64": 1,
+        "8": 1
+      },
+      "search_ms_per_query": 0.101,
+      "insert_single_us": 10.04,
+      "insert_batch100_us_per_vector": 5.22,
+      "write_ms": 70.02,
+      "load_first_search_ms": 24.655,
+      "file_mb": 150,
+      "fp32_mb": 1171.9,
+      "compression_ratio": 7.8
+    }
+  ],
+  "remove": {
+    "single_us_per_op": 1.24,
+    "batch100_us_per_op": 1.56
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "dataset": "openai-3072",
+  "dim": 3072,
+  "n": 100000,
+  "nq": 1000,
+  "n_recall_queries": 1000,
+  "k": 64,
+  "machine": "Apple M4 Max, 16 cores, macOS arm64",
+  "env": {
+    "go_version": "go1.26.5",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "num_cpu": 16,
+    "gomaxprocs": 16,
+    "rayon_num_threads": "1"
+  },
+  "exact": {
+    "search_ms_per_query": 71.141
+  },
+  "bit_widths": [
+    {
+      "bit_width": 2,
+      "build_ms": 838.634375,
+      "prepare_ms": 0.000958,
+      "recall_at_1_in_top_k": {
+        "1": 0.93,
+        "16": 1,
+        "2": 0.993,
+        "32": 1,
+        "4": 1,
+        "64": 1,
+        "8": 1
+      },
+      "search_ms_per_query": 1.217,
+      "insert_single_us": 10.13,
+      "insert_batch100_us_per_vector": 7.93,
+      "write_ms": 41.274,
+      "load_first_search_ms": 11.846,
+      "file_mb": 75.2,
+      "fp32_mb": 1171.9,
+      "compression_ratio": 15.6
+    },
+    {
+      "bit_width": 4,
+      "build_ms": 975.71425,
+      "prepare_ms": 0.003875,
+      "recall_at_1_in_top_k": {
+        "1": 0.984,
+        "16": 1,
+        "2": 0.998,
+        "32": 1,
+        "4": 1,
+        "64": 1,
+        "8": 1
+      },
+      "search_ms_per_query": 1.065,
+      "insert_single_us": 11.96,
+      "insert_batch100_us_per_vector": 8.78,
+      "write_ms": 66.943,
+      "load_first_search_ms": 23.838,
+      "file_mb": 150,
+      "fp32_mb": 1171.9,
+      "compression_ratio": 7.8
+    }
+  ],
+  "remove": {
+    "single_us_per_op": 1.22,
+    "batch100_us_per_op": 1.39
+  }
+}
