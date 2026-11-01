@@ -155,6 +155,44 @@ Requirements:
 go test ./...
 ```
 
+## Benchmarks
+
+100,000 vectors, 1,000 queries, `k=64`, median of 5 runs. Apple M4 Max
+(16 cores, arm64), macOS, Go 1.26.5, upstream core v1.1.2. Recall is scored
+against an exact float32 scan of the same corpus: 10,000 GloVe test queries
+and 1,000 OpenAI queries drawn from rows the corpus excludes. Figures are
+uncalibrated TQ, since the Go binding does not expose upstream's
+`calibrate()`. Harness, raw JSON and reproduction steps:
+[`benchmarks/`](benchmarks/README.md).
+
+| Dataset | Bits | Recall@1 | Recall@8 | Search, 1 thread | Search, 16 cores | Index size | vs float32 |
+|---|---|---|---|---|---|---|---|
+| GloVe d=200 | 2 | 0.550 | 0.909 | 0.161 ms — **29× exact** | 0.027 ms — **16×** | 5.3 MB | **14.4×** |
+| GloVe d=200 | 4 | 0.858 | 0.999 | 0.182 ms — **26×** | 0.028 ms — **15×** | 10.1 MB | **7.6×** |
+| OpenAI d=1536 | 2 | 0.871 | 1.000 | 0.624 ms — **58×** | 0.062 ms — **51×** | 37.8 MB | **15.5×** |
+| OpenAI d=1536 | 4 | 0.964 | 1.000 | 0.564 ms — **64×** | 0.053 ms — **60×** | 75.2 MB | **7.8×** |
+| OpenAI d=3072 | 2 | 0.930 | 1.000 | 1.217 ms — **58×** | 0.111 ms — **62×** | 75.2 MB | **15.6×** |
+| OpenAI d=3072 | 4 | 0.984 | 1.000 | 1.065 ms — **67×** | 0.101 ms — **69×** | 150.0 MB | **7.8×** |
+
+The speedups are against the exact scan this index replaces: 4.74 ms/query on
+GloVe (1 thread) and 0.42 ms on 16 cores; 36.1 ms and 3.17 ms on OpenAI
+d=1536; 71.1 ms and 6.93 ms on OpenAI d=3072. Single-threaded runs pin both
+sides with `RAYON_NUM_THREADS=1` and `-exact-threads 1`.
+
+Online operations, single-threaded:
+
+| Dataset | Bits | Build 100K | Insert 1 vector | Insert 100 | Save | Load → first search |
+|---|---|---|---|---|---|---|
+| GloVe d=200 | 2 | 68 ms | 0.96 µs | 0.67 µs/vec | 10.9 ms | 0.86 ms |
+| GloVe d=200 | 4 | 116 ms | 1.13 µs | 0.99 µs/vec | 14.0 ms | 3.16 ms |
+| OpenAI d=1536 | 2 | 417 ms | 5.13 µs | 4.10 µs/vec | 23.9 ms | 6.59 ms |
+| OpenAI d=1536 | 4 | 479 ms | 6.29 µs | 4.36 µs/vec | 38.9 ms | 17.1 ms |
+| OpenAI d=3072 | 2 | 839 ms | 10.13 µs | 7.93 µs/vec | 41.3 ms | 11.8 ms |
+| OpenAI d=3072 | 4 | 976 ms | 11.96 µs | 8.78 µs/vec | 66.9 ms | 23.8 ms |
+
+`IdMapIndex.Remove` costs 0.5–1.2 µs per op in every configuration, since it
+is a swap-and-pop plus id-map bookkeeping rather than a code repack.
+
 ## References
 
 - [TurboQuant: Online Vector Quantization with Near-optimal Distortion Rate](https://arxiv.org/abs/2504.19874) - the paper behind TurboQuant.
