@@ -13,3 +13,6 @@ bin/
 *.swp
 /.codegraph
 /docs
+
+# Benchmark datasets and generated inputs
+benchmarks/data/
